@@ -10,7 +10,7 @@ async def transcribe(file: UploadFile = File(...)):
     try:
         audio_bytes = await file.read()
         audio = io.BytesIO(audio_bytes)
-        y, sr = librosa.load(audio, sr=None)
+        y, sr = librosa.load(audio, sr=16000)
 
         transcription = await transcribe_audio(y, sr)
         return {"transcription": transcription}
