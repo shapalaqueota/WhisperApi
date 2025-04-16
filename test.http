@@ -1,0 +1,58 @@
+###LOGIN
+POST http://localhost:8000/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "aza",
+  "password": "123"
+}
+
+###REGISTRATION
+
+POST http://localhost:8000/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "username": "aza",
+  "email": "aza@gmail.com",
+  "password": "123"
+}
+
+###GET TRANSCRIPTION
+GET http://localhost:8000/api/v1/transcriptions
+
+
+###LOGOUT
+POST http://localhost:8000/api/v1/auth/logout
+
+
+### Создание чат-сессии
+POST http://localhost:8000/api/v1/chat/sessions
+Content-Type: application/json
+
+{
+  "title": "Моя первая транскрипция"
+}
+
+### Получение списка чат-сессий
+GET http://localhost:8000/api/v1/chat/sessions
+
+### Получение истории конкретной чат-сессии
+GET http://localhost:8000/api/v1/chat/sessions/1
+
+### Загрузка аудио в чат-сессию
+POST http://localhost:8000/api/v1/chat/sessions/1/transcribe
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="audio.mp3"
+Content-Type: audio/mpeg
+
+< ./path/to/audio.mp3
+------WebKitFormBoundary
+Content-Disposition: form-data; name="language"
+
+kk
+------WebKitFormBoundary
+Content-Disposition: form-data; name="task"
+
+transcribe
+------WebKitFormBoundary--

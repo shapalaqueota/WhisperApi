@@ -1,20 +1,31 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import transcriptions
-
-import sys
+# app/main.py (обновленный)
 import os
+import logging
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-os.environ["PYTHONIOENCODING"] = "utf-8"
-sys.stdin.reconfigure(encoding="utf-8")
-sys.stdout.reconfigure(encoding="utf-8")
-sys.stderr.reconfigure(encoding="utf-8")
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.v1.endpoints.transcriptions import router as transcriptions_router
+from app.api.v1.endpoints.chat_sessions import router as chat_sessions_router
+from app.api.auth.auth import router as auth_router
+from app.models.audio_model import Base
+from app.db.database import engine
+import secrets
+from starlette.middleware.sessions import SessionMiddleware
 
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Whisper API",
-    version="12.0.0",
-    description="Whisper API",
+    title="Audio Transcription API",
+    description="REST API for Kazakh audio transcription using faster-whisper",
+    version="1.0.0"
+)
+
+# Добавляем поддержку сессий
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=secrets.token_urlsafe(32),
+    session_cookie="audio_transcription_session"
 )
 
 app.add_middleware(
@@ -25,34 +36,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(transcriptions.router, prefix="/api/v1/transcriptions", tags=["Transcriptions"])
+app.include_router(
+    transcriptions_router,
+    prefix="/api/v1",
+    tags=["transcription"]
+)
 
+app.include_router(
+    chat_sessions_router,
+    prefix="/api/v1/chat",
+    tags=["chat"]
+)
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
+# Добавляем роутер авторизации
+app.include_router(
+    auth_router,
+    prefix="/api/v1/auth",
+    tags=["authentication"]
+)
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
+# Create .env file or set these environment variables
+if "S3_ACCESS_KEY" not in os.environ:
+    logging.warning("S3 credentials not found in environment variables. Set them before running in production.")
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def send_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
-
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
-
-
-manager = ConnectionManager()
-
-@app.websocket("/ws/transcriptions")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    await websocket.send_text("Connection established")
-    while True:
-        data = await websocket.receive_text()
-        await websocket.send_text(data.encode("utf-8").decode("utf-8"))
+@app.get("/")
+async def root():
+    return {"message": "Audio Transcription API is running"}

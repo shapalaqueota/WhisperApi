@@ -1,44 +1,38 @@
-import whisper
-from app.core.config import settings
-import numpy as np
-import torch
-
-import sys
-
-sys.stdin.reconfigure(encoding='utf-8')
-sys.stdout.reconfigure(encoding='utf-8')
+import logging
+from typing import Dict, Any
+from faster_whisper import WhisperModel
 
 
-if torch.cuda.is_available():
-    print("GPU")
-    device = "cuda"
-else:
-    print("CPU")
-    device = "cpu"
-
-model = whisper.load_model(settings.whisper_model).to(device)
+model = WhisperModel("large-v3", device="cpu")
 
 
-async def transcribe_audio_with_progress(y: np.ndarray, sr: int, websocket=None) -> str:
-    audio = whisper.pad_or_trim(y)
+def transcribe_audio(file_path: str, language: str = "kk", task: str = "transcribe") -> Dict[str, Any]:
 
-    if websocket:
-        await websocket.send_text("Starting transcription...")
+    try:
+        # Process with Faster Whisper
+        logging.info(f"Transcribing audio file: {file_path}")
 
-    result = model.transcribe(audio, language=settings.whisper_language, verbose=True)
-    print(result)
+        # Set language if provided
+        language_arg = None if language == "auto" else language
 
-    if isinstance(result, dict) and "text" in result:
-        transcription = result["text"]
+        # Transcribe the audio file directly
+        segments, info = model.transcribe(
+            file_path,
+            language=language_arg,
+            task=task
+        )
 
+        # Combine all segments to get the complete transcription
+        transcription = " ".join([segment.text for segment in segments])
 
+        result = {
+            "text": transcription,
+            "language": info.language,
+            "duration": info.duration
+        }
 
-        if websocket:
-            await websocket.send_text("Transcription completed.")
-            await websocket.send_text(transcription)
+        return result
 
-        return transcription
-    else:
-        if websocket:
-            await websocket.send_text("Transcription failed.")
-        raise ValueError("Unexpected response format from Whisper model")
+    except Exception as e:
+        logging.error(f"Error in transcribe_audio: {e}")
+        raise
