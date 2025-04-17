@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch
+torchaudio
+faster-whisper~=1.1.1
+fastapi~=0.112.1
+pydantic~=2.8.2
+uvicorn~=0.30.6
+boto3~=1.37.19
+SQLAlchemy~=2.0.39
+logging~=0.4.9.6
+passlib~=1.7.4
+python-dotenv~=1.0.1
+botocore~=1.37.19
