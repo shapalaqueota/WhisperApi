@@ -1,9 +1,12 @@
 import logging
 from typing import Dict, Any
 from faster_whisper import WhisperModel
+from torch import device
 
+model = WhisperModel("large-v3", device="cuda")
 
-model = WhisperModel("large-v3", device="cpu")
+if device == "cuda":
+    logging.info("Using GPU for transcription.")
 
 
 def transcribe_audio(file_path: str, language: str = "kk", task: str = "transcribe") -> Dict[str, Any]:

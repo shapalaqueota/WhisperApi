@@ -1,8 +1,6 @@
-# app/main.py (обновленный)
 import os
 import logging
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints.transcriptions import router as transcriptions_router

@@ -16,6 +16,3 @@ class AudioTranscription(Base):
     language = Column(String)
     transcription = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    segments = Column(JSON, nullable=True)
-    word_segments = Column(JSON, nullable=True)
-    speakers = Column(JSON, nullable=True)

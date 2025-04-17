@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/chat_sessions.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.db.database import get_db
