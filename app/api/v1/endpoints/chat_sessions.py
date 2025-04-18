@@ -94,6 +94,7 @@ async def transcribe_in_session(
         file: UploadFile = File(...),
         language: str = Form("kk"),
         task: str = Form("transcribe"),
+        enable_diarization: bool = Form(True),  # Добавляем параметр
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
@@ -102,8 +103,10 @@ async def transcribe_in_session(
     if not session:
         raise HTTPException(status_code=404, detail="Чат-сессия не найдена")
 
-    # Транскрибируем аудио
-    transcription_result = await transcribe_audio_file(file, language, task, db, current_user)
+    # Транскрибируем аудио с параметром диаризации
+    transcription_result = await transcribe_audio_file(
+        file, language, task, enable_diarization, db, current_user
+    )
 
     # Добавляем результат в чат
     add_transcription_to_chat(

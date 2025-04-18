@@ -15,4 +15,7 @@ class AudioTranscription(Base):
     duration = Column(Float)
     language = Column(String)
     transcription = Column(Text)
+    diarization_data = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    formatted_transcription = Column(Text, nullable=True)
+    speakers = Column(JSON, nullable=True)

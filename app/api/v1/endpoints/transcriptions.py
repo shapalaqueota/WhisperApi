@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -25,7 +25,8 @@ class TranscriptionResponse(BaseModel):
     duration: Optional[float] = None
     filename: str
     segments: Optional[List[Dict[str, Any]]] = None
-    word_segments: Optional[List[Dict[str, Any]]] = None
+    formatted_text: Optional[str] = None  # Текст с указанием спикеров
+    speakers: Optional[List[str]] = None
 
 
 class TranscriptionList(BaseModel):
@@ -35,8 +36,9 @@ class TranscriptionList(BaseModel):
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio_file(
         file: UploadFile = File(...),
-        language: str = "kk",
-        task: str = "transcribe",
+        language: str = Form("kk"),
+        task: str = Form("transcribe"),
+        enable_diarization: bool = Form(True),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
@@ -51,9 +53,15 @@ async def transcribe_audio_file(
             temp_file.write(await file.read())
             temp_path = temp_file.name
 
-        result = transcribe_audio(temp_path, language=language, task=task)
+        # Передаем параметр enable_diarization
+        result = transcribe_audio(temp_path, language=language, task=task, enable_diarization=enable_diarization)
 
         os.unlink(temp_path)
+
+        # Сохраняем данные диаризации, если они есть
+        segments_data = result.get("segments")
+        formatted_text = result.get("formatted_text")
+        speakers_list = result.get("speakers")
 
         transcription = AudioTranscription(
             original_filename=file_info["original_filename"],
@@ -62,7 +70,10 @@ async def transcribe_audio_file(
             file_size=file_info["size"],
             duration=result.get("duration"),
             language=result.get("language"),
-            transcription=result["text"]
+            transcription=result["text"],
+            formatted_transcription=formatted_text,
+            speakers=speakers_list,
+            diarization_data=segments_data
         )
 
         db.add(transcription)
@@ -75,12 +86,17 @@ async def transcribe_audio_file(
             audio_url=transcription.s3_url,
             language=transcription.language,
             duration=transcription.duration,
-            filename=transcription.original_filename
+            filename=transcription.original_filename,
+            segments=transcription.diarization_data,
+            formatted_text=transcription.formatted_transcription,
+            speakers=transcription.speakers
         )
 
     except Exception as e:
         logger.error(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+
+
 @router.get("/transcriptions", response_model=TranscriptionList)
 def get_transcriptions(skip: int = 0, limit: int = 10, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     transcriptions = db.query(AudioTranscription).offset(skip).limit(limit).all()
@@ -91,7 +107,8 @@ def get_transcriptions(skip: int = 0, limit: int = 10, db: Session = Depends(get
             audio_url=t.s3_url,
             language=t.language,
             duration=t.duration,
-            filename=t.original_filename
+            filename=t.original_filename,
+            segments=t.diarization_data
         ) for t in transcriptions
     ])
 
@@ -108,5 +125,8 @@ def get_transcription(transcription_id: int, db: Session = Depends(get_db), curr
         audio_url=transcription.s3_url,
         language=transcription.language,
         duration=transcription.duration,
-        filename=transcription.original_filename
+        filename=transcription.original_filename,
+        segments=transcription.diarization_data,
+        formatted_text=transcription.formatted_transcription,
+        speakers=transcription.speakers
     )
