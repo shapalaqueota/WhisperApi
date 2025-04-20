@@ -3,7 +3,6 @@
 import os
 import tempfile
 import logging
-
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,10 +11,11 @@ from app.services.storage_service import storage_service
 from app.services.diarization_service import diarize_file
 from app.services.whisper_service import transcribe_full, transcribe_segment
 from app.services.emotion_service import detect_emotion
-from app.services.polishing_service import polish_text, polish_segments
+from app.services.polishing_service import polish_text
 from app.db.database import get_db
 from app.models.audio_model import AudioTranscription
 from app.api.auth.auth import get_current_user
+from app.models.user_model import User
 
 router = APIRouter(
     prefix="/api/v1",
@@ -23,15 +23,12 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
-
 class SegmentOut(BaseModel):
     start: float
     end: float
     speaker: str
     text: str
     emotion: str
-    polished_text: str
-
 
 class TranscriptionResponse(BaseModel):
     id: int
@@ -46,71 +43,66 @@ class TranscriptionResponse(BaseModel):
     overall_emotion: str
     polished_text: str
 
-
 async def transcribe_audio_file(
     file: UploadFile,
     language: str = "kk",
     task: str = "transcribe",
     enable_diarization: bool = True,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ) -> TranscriptionResponse:
-    # 1. Проверка
+    """
+    Функция для внутреннего вызова из chat_sessions.py
+    Обрабатывает UploadFile точно так же, как POST-эндпоинт ниже.
+    """
+    # 1. Проверка типа файла
     if not file.filename.lower().endswith(('.mp3', '.wav', '.m4a', '.ogg', '.flac')):
         raise HTTPException(status_code=400, detail="Only audio files allowed")
 
-    # 2. Загрузка
+    # 2. Загрузка на S3
     file_info = await storage_service.upload_file(file)
 
-    # 3. Временный файл
+    # 3. Сохранение во временный файл
     suffix = os.path.splitext(file.filename)[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         await file.seek(0)
         tmp.write(await file.read())
         temp_path = tmp.name
 
-    segments_data = []
-    speakers = []
+    segments_data: list[dict] = []
+    speakers: list[str] = []
     overall_emotion = ""
-    formatted = ""
-    full_text = ""
-    full_polished = ""
 
-    # 4. Диаризация или целиком
+    # 4. Диаризация и построчная обработка
     if enable_diarization:
-        raw = diarize_file(temp_path)
-        for seg in raw:
+        raw_segments = diarize_file(temp_path)
+        for seg in raw_segments:
             if seg['speaker'] not in speakers:
                 speakers.append(seg['speaker'])
             txt = transcribe_segment(temp_path, seg['start'], seg['end'], task=task)
-            emo = detect_emotion(temp_path)
+            emotion = detect_emotion(temp_path)
             segments_data.append({
-                "start": seg['start'],
-                "end": seg['end'],
+                "start":   seg['start'],
+                "end":     seg['end'],
                 "speaker": seg['speaker'],
-                "text": txt,
-                "emotion": emo
+                "text":    txt,
+                "emotion": emotion
             })
-
         formatted = "\n".join(f"{s['speaker']}: {s['text']}" for s in segments_data)
         full_text = " ".join(s['text'] for s in segments_data)
-
-        # 5. Полировка по сегментам
-        polished_segments = polish_segments(segments_data, language)
-        full_polished = " ".join(s['polished_text'] for s in polished_segments)
-        segments_data = polished_segments
-
     else:
         full_text = transcribe_full(temp_path, task=task)
         formatted = full_text
         overall_emotion = detect_emotion(temp_path)
-        full_polished = polish_text(full_text, language)
-        speakers = []
         segments_data = []
+        speakers = []
 
     os.unlink(temp_path)
 
-    # 6. Сохранение
+    # 5. Полировка через GPT
+    polished = polish_text(full_text, language)
+
+    # 6. Сохранение в БД
     transcription = AudioTranscription(
         original_filename       = file_info["original_filename"],
         s3_filename             = file_info["s3_filename"],
@@ -123,7 +115,7 @@ async def transcribe_audio_file(
         speakers                = speakers,
         diarization_data        = segments_data,
         overall_emotion         = overall_emotion,
-        polished_text           = full_polished
+        polished_text           = polished
     )
     db.add(transcription)
     db.commit()
@@ -143,7 +135,6 @@ async def transcribe_audio_file(
         polished_text    = transcription.polished_text
     )
 
-
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_endpoint(
     file: UploadFile = File(...),
@@ -151,8 +142,7 @@ async def transcribe_endpoint(
     task: str = Form("transcribe"),
     enable_diarization: bool = Form(True),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
-    return await transcribe_audio_file(
-        file, language, task, enable_diarization, db, current_user
-    )
+    # просто перенаправляем в общую функцию
+    return await transcribe_audio_file(file, language, task, enable_diarization, db, current_user)

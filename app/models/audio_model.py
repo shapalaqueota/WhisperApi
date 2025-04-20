@@ -19,3 +19,5 @@ class AudioTranscription(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     formatted_transcription = Column(Text, nullable=True)
     speakers = Column(JSON, nullable=True)
+    overall_emotion         = Column(String, nullable=True)
+    polished_text           = Column(Text, nullable=True)

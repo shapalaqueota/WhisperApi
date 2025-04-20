@@ -3,6 +3,7 @@ torch==2.5.1+cu121
 transformers
 torchaudio
 pyannote.audio
+speechbrain
 python-dotenv
 fastapi~=0.115.12
 pydantic~=2.11.3
@@ -15,3 +16,5 @@ passlib~=1.7.4
 bcrypt
 botocore~=1.37.19
 dotenv~=0.9.9
+librosa
+itsdangerous
