@@ -1,197 +1,185 @@
-import logging
 import os
-from typing import Dict, Any
-
 from dotenv import load_dotenv
-from faster_whisper import WhisperModel
-from torch import device
-from pyannote.audio import Pipeline
-from pyannote.core import Annotation, Segment
+import time
+import librosa
+import torch
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline as hf_pipeline
+from pyannote.audio import Pipeline as PyannotePipeline
+from openai import OpenAI
+from typing import Optional, Dict, Any, List
 
+# ----------------------
+# Загрузка .env и конфигурация
+# ----------------------
 load_dotenv()
-model = WhisperModel("large-v3", device="cuda")
+MODEL_ID        = os.getenv("WHISPER_MODEL_ID", "nocturneFlow/whisper-kk-diploma")
+HF_TOKEN        = os.getenv("HF_TOKEN")
+OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY")
+GPT_MODEL       = os.getenv("GPT_MODEL", "gpt-4o")  # или другой поддерживаемый
+DEVICE_NAME     = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE          = 0 if DEVICE_NAME == "cuda" else -1
 
-if device == "cuda":
-    logging.info("Using GPU for transcription.")
+# Инициализация OpenAI SDK v1
+if not OPENAI_API_KEY:
+    print("[WARNING] OPENAI_API_KEY not set. GPT enhancement unavailable.")
+    openai_client = None
+else:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    print("[INFO] OpenAI client initialized.")
 
-HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN")
-diarization_model = Pipeline.from_pretrained(
-    "pyannote/speaker-diarization-3.1",
-    use_auth_token=HUGGING_FACE_TOKEN,
+# ----------------------
+# Загрузка моделей Whisper
+# ----------------------
+processor = WhisperProcessor.from_pretrained(MODEL_ID, use_auth_token=HF_TOKEN)
+model     = WhisperForConditionalGeneration.from_pretrained(
+    MODEL_ID, use_auth_token=HF_TOKEN
+).to(DEVICE_NAME)
+
+# Полная транскрипция (pipeline)
+asr_pipeline = hf_pipeline(
+    task="automatic-speech-recognition",
+    model=model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
+    device=DEVICE,
+    chunk_length_s=30,
+    stride_length_s=(5, 5),
 )
 
-def perform_diarization(file_path: str) -> Annotation:
-    """Выполняет диаризацию аудиофайла для определения говорящих."""
-    try:
-        logging.info(f"Performing diarization on file: {file_path}")
-        diarization = diarization_model(file_path)
-        return diarization
-    except Exception as e:
-        logging.error(f"Error in perform_diarization: {e}")
-        raise
+# Диаризатор
+diarizer = PyannotePipeline.from_pretrained(
+    "pyannote/speaker-diarization-3.1",
+    use_auth_token=HF_TOKEN,
+)
+
+# Параметры сегментации
+MIN_SEGMENT_LEN = 0.5
+MERGE_GAP       = 0.2
 
 
-def transcribe_with_diarization(file_path: str, language: str = "kk", task: str = "transcribe") -> Dict[str, Any]:
-    """Транскрибирует аудио с диаризацией говорящих."""
+def enhance_text_with_gpt(text: str, language: str, prompt_template: Optional[str] = None) -> str:
+    """
+    Улучшает текст через GPT-4o с помощью OpenAI SDK v1.
+    Возвращает оригинал при отсутствии клиента или ошибке.
+    """
+    if not openai_client:
+        print("[INFO] GPT enhancement skipped: client unavailable.")
+        return text
     try:
-        # Выполняем базовую транскрипцию
-        language_arg = None if language == "auto" else language
-        result = model.transcribe(
-            file_path,
-            language=language_arg,
-            task=task
+        # Шаблон промпта
+        if not prompt_template:
+            prompt_template = (
+                "Мына транскрипцияны тексерiп, қателерді түзетіңіз және форматтаңыз: {text}"
+                if language == "kk"
+                else "Check and correct this transcription, fix grammar and formatting: {text}"
+            )
+        prompt = prompt_template.format(text=text)
+        print(f"[DEBUG] Sending prompt (~{len(text)} chars) to GPT v1 api")
+        # Вызов нового клиента
+        response = openai_client.chat.completions.create(
+            model=GPT_MODEL,
+            messages=[
+                {"role": "system",  "content": f"You are a helpful assistant improving {language} transcriptions."},
+                {"role": "user",    "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2048
         )
-
-        # Обрабатываем результат
-        if isinstance(result, tuple) and len(result) == 2:
-            segments_generator, info = result
-        else:
-            segments_generator = result
-            info = getattr(result, "info", None)
-
-        transcript_segments = list(segments_generator)
-        logging.info(f"Транскрипция успешна: получено {len(transcript_segments)} сегментов")
-
-        # Выполняем диаризацию
-        diarization = diarization_model(file_path)
-
-        # Создаем временную шкалу говорящих
-        speaker_timeline = {}
-        for speaker, track in diarization.itertracks(yield_label=True):
-            start_time = track.start
-            end_time = track.end
-            for i in range(int(start_time * 100), int(end_time * 100)):
-                time_point = i / 100.0
-                speaker_timeline[time_point] = speaker
-
-        # Сопоставляем сегменты с говорящими
-        result_segments = []
-        current_speaker = None
-        formatted_texts = []
-        unique_speakers = set()
-
-        for segment in transcript_segments:
-            mid_point = (segment.start + segment.end) / 2
-            nearest_time = round(mid_point * 100) / 100
-
-            # Ищем ближайшую временную метку
-            if nearest_time not in speaker_timeline:
-                for offset in range(1, 50):
-                    check_before = nearest_time - offset / 100
-                    check_after = nearest_time + offset / 100
-                    if check_before in speaker_timeline:
-                        speaker_label = speaker_timeline[check_before]
-                        break
-                    if check_after in speaker_timeline:
-                        speaker_label = speaker_timeline[check_after]
-                        break
-                else:
-                    speaker_label = "SPEAKER_1"
-            else:
-                speaker_label = speaker_timeline[nearest_time]
-
-            unique_speakers.add(speaker_label)
-
-            # Добавляем метку говорящего в текст
-            if current_speaker != speaker_label:
-                current_speaker = speaker_label
-                formatted_texts.append(f"[{speaker_label}]: {segment.text}")
-            else:
-                formatted_texts.append(segment.text)
-
-            result_segments.append({
-                "text": segment.text,
-                "start": segment.start,
-                "end": segment.end,
-                "speaker": speaker_label
-            })
-
-        # Создаем форматированный текст с указанием говорящих
-        formatted_full_text = " ".join(formatted_texts)
-
-        # Обычный текст без форматирования (для обратной совместимости)
-        plain_full_text = " ".join(seg["text"] for seg in result_segments)
-
-        # Результат с добавлением списка говорящих
-        result_dict = {
-            "text": plain_full_text,
-            "formatted_text": formatted_full_text,
-            "segments": result_segments,
-            "speakers": list(unique_speakers)
-        }
-
-        # Добавляем метаданные
-        if info:
-            result_dict["language"] = getattr(info, "language", language)
-            result_dict["duration"] = getattr(info, "duration", None)
-        else:
-            result_dict["language"] = language
-            if result_segments:
-                result_dict["duration"] = result_segments[-1]["end"]
-
-        return result_dict
-
+        enhanced = response.choices[0].message.content.strip()
+        print("[DEBUG] GPT enhancement received.")
+        return enhanced
     except Exception as e:
-        logging.error(f"Ошибка в transcribe_with_diarization: {e}")
-        import traceback
-        logging.debug(traceback.format_exc())
-        logging.info("Откат к транскрипции без диаризации")
-        return transcribe_audio(file_path, language, task, enable_diarization=False)
+        print(f"[ERROR] GPT enhancement failed: {e}")
+        return text
 
-def transcribe_audio(file_path: str, language: str = "kk", task: str = "transcribe",
-                     enable_diarization: bool = False) -> Dict[str, Any]:
+
+def enhance_segments_with_gpt(segments: List[Dict[str, Any]], language: str) -> List[Dict[str, Any]]:
+    """Применяет GPT к каждому сегменту."""
+    if not segments:
+        return segments
+    enhanced = []
+    for seg in segments:
+        seg_copy = seg.copy()
+        seg_copy['text_before_gpt'] = seg_copy['text']
+        seg_copy['text'] = enhance_text_with_gpt(seg_copy['text'], language)
+        enhanced.append(seg_copy)
+    return enhanced
+
+
+def transcribe_audio(
+    audio_path: str,
+    language: str = "kk",
+    task: str = "transcribe",
+    enable_diarization: bool = True,
+    gpt_prompt: Optional[str] = None
+) -> dict:
     """
-    Транскрибирует аудио файл с опциональной диаризацией.
+    ASR + обязательная GPT постобработка с OpenAI SDK v1.
     """
+    t0 = time.time()
+    mode = task if task in ("transcribe", "translate") else "transcribe"
+
+    # Диаризация и сегментация
     if enable_diarization:
-        return transcribe_with_diarization(file_path, language, task)
+        ann = diarizer({"audio": audio_path})
+        raw = [{"start": round(turn.start,2), "end": round(turn.end,2), "speaker": spk}
+               for turn, _, spk in ann.itertracks(yield_label=True)]
+        filt = [s for s in raw if s['end'] - s['start'] >= MIN_SEGMENT_LEN]
+        merged = []
+        for seg in sorted(filt, key=lambda x: x['start']):
+            if merged and seg['speaker']==merged[-1]['speaker'] and seg['start']-merged[-1]['end']<=MERGE_GAP:
+                merged[-1]['end'] = seg['end']
+            else:
+                merged.append(seg.copy())
+        segments = []
+        lines = []
+        speakers = []
+        for seg in merged:
+            st, ed, spk = seg['start'], seg['end'], seg['speaker']
+            if spk not in speakers:
+                speakers.append(spk)
+            speech, sr = librosa.load(audio_path, offset=st, duration=ed-st, sr=16000)
+            inp = processor(speech, sampling_rate=sr, return_tensors='pt').input_features.to(DEVICE_NAME)
+            kwargs = {'task':'translate'} if mode=='translate' else {}
+            ids = model.generate(inp, **kwargs)
+            txt = processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
+            segments.append({'start':st,'end':ed,'speaker':spk,'text':txt})
+            lines.append(f"{spk}: {txt}")
+        full_text = ' '.join([s['text'] for s in segments])
+        formatted = "\n".join(lines)
+    else:
+        kwargs = {'task':'translate'} if mode=='translate' else {}
+        res = asr_pipeline(audio_path, **kwargs)
+        full_text = res.get('text','').strip() if isinstance(res,dict) else str(res)
+        segments, formatted, speakers = None, full_text, []
 
-    try:
-        logging.info(f"Transcribing audio file: {file_path}")
+    # До постобработки
+    print('==== BEFORE GPT ENHANCEMENT ====')
+    print(formatted)
+    print('==== END BEFORE ====')
 
-        language_arg = None if language == "auto" else language
+    # Постобработка GPT
+    enhanced_text = enhance_text_with_gpt(full_text, language, gpt_prompt)
+    enhanced_segments = enhance_segments_with_gpt(segments, language) if segments else None
+    enhanced_lines = ("\n".join([f"{s['speaker']}: {s['text']}" for s in enhanced_segments])
+                      if enhanced_segments else enhanced_text)
 
-        # Получаем генератор сегментов
-        result = model.transcribe(
-            file_path,
-            language=language_arg,
-            task=task
-        )
+    # После постобработки
+    print('==== AFTER GPT ENHANCEMENT ====')
+    print(enhanced_lines)
+    print('==== END AFTER ====')
 
-        # Обрабатываем результат в зависимости от его типа
-        if isinstance(result, tuple):
-            segments_generator = result[0]
-            info = result[1]
-        else:
-            segments_generator = result
-            info = None
-
-        segment_list = list(segments_generator)
-
-        segments_data = []
-        texts = []
-
-        for segment in segment_list:
-            texts.append(segment.text)
-            segments_data.append({
-                "text": segment.text,
-                "start": segment.start,
-                "end": segment.end
-            })
-
-        transcription = " ".join(texts)
-
-        result_dict = {
-            "text": transcription,
-            "segments": segments_data
-        }
-
-        if info:
-            result_dict["language"] = getattr(info, "language", language)
-            result_dict["duration"] = getattr(info, "duration", None)
-
-        return result_dict
-
-    except Exception as e:
-        logging.error(f"Error in transcribe_audio: {e}")
-        raise
+    duration = round(time.time()-t0,2)
+    return {
+        'text': full_text,
+        'segments': segments,
+        'formatted_text': formatted,
+        'speakers': speakers,
+        'duration': duration,
+        'language': language,
+        'task': mode,
+        'enhanced_text': enhanced_text,
+        'enhanced_segments': enhanced_segments,
+        'enhanced_formatted_text': enhanced_lines,
+        'enhancement_duration': round(time.time()-duration,2)
+    }

@@ -108,7 +108,9 @@ def get_transcriptions(skip: int = 0, limit: int = 10, db: Session = Depends(get
             language=t.language,
             duration=t.duration,
             filename=t.original_filename,
-            segments=t.diarization_data
+            segments=t.diarization_data,
+            formatted_text=t.formatted_transcription,
+            speakers=t.speakers
         ) for t in transcriptions
     ])
 
