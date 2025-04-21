@@ -16,3 +16,6 @@ wav2vec2_checkpoints/
 *.env.local
 *.env.production
 *.env.development`
+
+# Data directory
+data/
