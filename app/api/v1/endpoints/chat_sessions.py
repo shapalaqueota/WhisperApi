@@ -35,7 +35,7 @@ class ChatHistoryResponse(BaseModel):
     messages: List[ChatMessageResponse]
 
 
-@router.post("/sessions", response_model=ChatSessionResponse)
+@router.post("/create-sessions", response_model=ChatSessionResponse)
 def create_session(
         title: str = "Новый чат",
         db: Session = Depends(get_db),
@@ -45,7 +45,7 @@ def create_session(
     return session
 
 
-@router.get("/sessions", response_model=List[ChatSessionResponse])
+@router.get("/get-sessions", response_model=List[ChatSessionResponse])
 def get_sessions(
         skip: int = 0,
         limit: int = 100,

@@ -1,0 +1,6 @@
+# Создайте .gitattributes файл
+echo "* text=auto" > .gitattributes
+# Конкретно для Python файлов
+echo "*.py text eol=lf" >> .gitattributes
+echo "*.pyx text eol=lf" >> .gitattributes
+echo "*.pyc binary" >> .gitattributes

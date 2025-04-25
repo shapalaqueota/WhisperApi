@@ -19,3 +19,23 @@ wav2vec2_checkpoints/
 
 # Data directory
 data/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Линтеры и форматтеры
+.pylintrc
+.mypy_cache/
+.pytest_cache/
+
+# Виртуальное окружение
+venv/
+env/
+.venv/
+.env/
