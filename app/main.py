@@ -11,6 +11,9 @@ from app.db.database import engine
 import secrets
 from starlette.middleware.sessions import SessionMiddleware
 
+print(f"Using DATABASE_URL: {os.environ.get('DATABASE_URL')}")
+
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -34,22 +37,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 app.include_router(
     transcriptions_router,
-    prefix="/api/v1",
     tags=["transcription"]
 )
 
 app.include_router(
     chat_sessions_router,
-    prefix="/api/v1/chat",
     tags=["chat"]
 )
 
 # Добавляем роутер авторизации
 app.include_router(
     auth_router,
-    prefix="/api/v1/auth",
     tags=["authentication"]
 )
 
