@@ -1,8 +1,6 @@
-# app/main.py (обновленный)
 import os
 import logging
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints.transcriptions import router as transcriptions_router
@@ -12,6 +10,9 @@ from app.models.audio_model import Base
 from app.db.database import engine
 import secrets
 from starlette.middleware.sessions import SessionMiddleware
+
+print(f"Using DATABASE_URL: {os.environ.get('DATABASE_URL')}")
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -36,22 +37,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 app.include_router(
     transcriptions_router,
-    prefix="/api/v1",
     tags=["transcription"]
 )
 
 app.include_router(
     chat_sessions_router,
-    prefix="/api/v1/chat",
     tags=["chat"]
 )
 
 # Добавляем роутер авторизации
 app.include_router(
     auth_router,
-    prefix="/api/v1/auth",
     tags=["authentication"]
 )
 

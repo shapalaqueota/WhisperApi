@@ -17,6 +17,12 @@ class UserLogin(BaseModel):
     username: str
     password: str
 
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     username = request.session.get("user")
     if username is None:
@@ -32,7 +38,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         )
     return user
 
-@router.post("/register")
+@router.post("/sign-up")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
     # Проверка существования пользователя
     db_user_by_username = get_user_by_username(db, username=user.username)
@@ -46,7 +52,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     # Создаем нового пользователя
     return create_user(db=db, username=user.username, email=user.email, password=user.password)
 
-@router.post("/login")
+@router.post("/sign-in", response_model=UserResponse)
 def login(user_data: UserLogin, response: Response, request: Request, db: Session = Depends(get_db)):
     user = authenticate_user(db, user_data.username, user_data.password)
     if not user:
@@ -55,9 +61,13 @@ def login(user_data: UserLogin, response: Response, request: Request, db: Sessio
             detail="Неверное имя пользователя или пароль"
         )
 
-    # Сохраняем в сессии
     request.session["user"] = user.username
-    return {"message": "Вход выполнен успешно"}
+    
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email
+    )
 
 @router.post("/logout")
 def logout(request: Request):

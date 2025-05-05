@@ -1,13 +1,23 @@
---extra-index-url https://download.pytorch.org/whl/cu124
-torch
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
+transformers
 torchaudio
-faster-whisper~=1.1.1
-fastapi~=0.112.1
-pydantic~=2.8.2
+pyannote.audio
+speechbrain
+python-dotenv
+fastapi~=0.115.12
+pydantic~=2.11.3
 uvicorn~=0.30.6
 boto3~=1.37.19
 SQLAlchemy~=2.0.39
-logging~=0.4.9.6
+python-multipart
+starlette~=0.46.2
 passlib~=1.7.4
-python-dotenv~=1.0.1
+bcrypt
 botocore~=1.37.19
+dotenv~=0.9.9
+librosa
+itsdangerous
+wikiextractor
+faiss-cpu
+openai

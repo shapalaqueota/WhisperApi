@@ -1,4 +1,3 @@
-# app/api/v1/endpoints/chat_sessions.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -36,7 +35,7 @@ class ChatHistoryResponse(BaseModel):
     messages: List[ChatMessageResponse]
 
 
-@router.post("/sessions", response_model=ChatSessionResponse)
+@router.post("/create-sessions", response_model=ChatSessionResponse)
 def create_session(
         title: str = "Новый чат",
         db: Session = Depends(get_db),
@@ -46,7 +45,7 @@ def create_session(
     return session
 
 
-@router.get("/sessions", response_model=List[ChatSessionResponse])
+@router.get("/get-sessions", response_model=List[ChatSessionResponse])
 def get_sessions(
         skip: int = 0,
         limit: int = 100,
@@ -95,6 +94,7 @@ async def transcribe_in_session(
         file: UploadFile = File(...),
         language: str = Form("kk"),
         task: str = Form("transcribe"),
+        enable_diarization: bool = Form(True),  # Добавляем параметр
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
@@ -103,8 +103,10 @@ async def transcribe_in_session(
     if not session:
         raise HTTPException(status_code=404, detail="Чат-сессия не найдена")
 
-    # Транскрибируем аудио
-    transcription_result = await transcribe_audio_file(file, language, task, db, current_user)
+    # Транскрибируем аудио с параметром диаризации
+    transcription_result = await transcribe_audio_file(
+        file, language, task, enable_diarization, db, current_user
+    )
 
     # Добавляем результат в чат
     add_transcription_to_chat(
