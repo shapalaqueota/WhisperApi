@@ -22,7 +22,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Добавляем поддержку сессий
 app.add_middleware(
     SessionMiddleware, 
     secret_key=secrets.token_urlsafe(32),
