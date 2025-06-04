@@ -16,7 +16,6 @@ class S3StorageService:
         self.secret_key = os.getenv('S3_SECRET_KEY')
         self.endpoint_url = os.getenv('S3_ENDPOINT_URL')
         self.bucket_name = os.getenv('S3_BUCKET_NAME')
-
         self._validate_config()
 
         self.s3_client = boto3.client(
@@ -40,10 +39,15 @@ class S3StorageService:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    async def upload_file(self, file: UploadFile) -> dict:
+    async def upload_file(self, file: UploadFile, folder: str = "") -> dict:
         try:
             file_extension = os.path.splitext(file.filename)[1]
             unique_filename = f"{uuid.uuid4()}{file_extension}"
+
+            if folder:
+                s3_key = f"{folder}/{unique_filename}"
+            else:
+                s3_key = unique_filename
 
             await file.seek(0)
             file_content = await file.read()
@@ -53,7 +57,8 @@ class S3StorageService:
                 Bucket=self.bucket_name,
                 Key=unique_filename,
                 Body=file_content,
-                ContentType=file.content_type
+                ContentType=file.content_type,
+                ACL='public-read'  
             )
 
             # Construct file URL
@@ -61,7 +66,7 @@ class S3StorageService:
 
             return {
                 "original_filename": file.filename,
-                "s3_filename": unique_filename,
+                "s3_filename": s3_key,
                 "s3_url": file_url,
                 "size": file_size
             }

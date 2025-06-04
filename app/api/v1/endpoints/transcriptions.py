@@ -3,7 +3,7 @@
 import os
 import tempfile
 import logging
-
+import librosa
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.services.polishing_service import polish_text, polish_segments
 from app.db.database import get_db
 from app.models.audio_model import AudioTranscription
 from app.api.auth.auth import get_current_user
+
 
 router = APIRouter(
     prefix="/api/v1",
@@ -70,6 +71,13 @@ async def transcribe_audio_file(
         tmp.write(await file.read())
         temp_path = tmp.name
 
+    try:
+        audio_data, sample_rate = librosa.load(temp_path, sr=None)
+        duration = len(audio_data) / sample_rate
+    except Exception as e:
+        logger.warning(f"Could not determine audio duration: {e}")
+        duration = 0.0
+
     segments_data = []
     speakers = []
     overall_emotion = ""
@@ -117,7 +125,7 @@ async def transcribe_audio_file(
         s3_filename             = file_info["s3_filename"],
         s3_url                  = file_info["s3_url"],
         file_size               = file_info["size"],
-        duration                = None,
+        duration                = duration,
         language                = language,
         transcription           = full_text,
         formatted_transcription = formatted,
@@ -135,7 +143,7 @@ async def transcribe_audio_file(
         text             = transcription.transcription,
         audio_url        = transcription.s3_url,
         language         = transcription.language,
-        duration         = transcription.duration or 0.0,
+        duration         = transcription.duration,
         filename         = transcription.original_filename,
         segments         = transcription.diarization_data,
         formatted_text   = transcription.formatted_transcription,
@@ -172,7 +180,7 @@ async def transcribe_audio_demo(
         raise HTTPException(status_code=400, detail="Only audio files allowed")
 
     # 2. Загрузка
-    file_info = await storage_service.upload_file(file)
+    file_info = await storage_service.upload_file(file, folder="demo-whisper")
     
     # 3-5. Обработка аудио (как в оригинальной функции)
     suffix = os.path.splitext(file.filename)[1]
@@ -180,6 +188,13 @@ async def transcribe_audio_demo(
         await file.seek(0)
         tmp.write(await file.read())
         temp_path = tmp.name
+
+    try:
+        audio_data, sample_rate = librosa.load(temp_path, sr=None)
+        duration = len(audio_data) / sample_rate
+    except Exception as e:
+        logger.warning(f"Could not determine audio duration: {e}")
+        duration = 0.0
 
     segments_data = []
     speakers = []
@@ -224,11 +239,11 @@ async def transcribe_audio_demo(
 
     # Возвращаем ответ без сохранения в БД
     return TranscriptionResponse(
-        id=0,  # Демо ID
+        id=0, 
         text=full_text,
         audio_url=file_info["s3_url"],
         language=language,
-        duration=0.0,  # Демо значение
+        duration=duration,  
         filename=file_info["original_filename"],
         segments=segments_data,
         formatted_text=formatted,
